@@ -1,5 +1,5 @@
 # MacClassicBitMiner
-# Bitcoin Miner for Mac OS 6.8 - Complete Setup Guide
+# Bitcoin Miner for Mac OS 6.0.8 - Complete Setup Guide
 ![program window screenshot](https://github.com/user-attachments/assets/e464c9b5-9ee5-4444-92e4-ea5eb7b361aa)
 
 A real Bitcoin pool miner for classic Macintosh computers running System 6.8, featuring hand-optimized 68000 assembly for maximum performance.
@@ -9,7 +9,7 @@ A real Bitcoin pool miner for classic Macintosh computers running System 6.8, fe
 - **Real Bitcoin Mining**: Connects to actual mining pools using Stratum protocol
 - **68000 Assembly Optimized**: Hand-tuned SHA-256 implementation for 2-3x performance
 - **MacTCP Support**: Network mining via TCP/IP
-- **Authentic Mac OS 6.8 UI**: Classic rounded buttons and text fields
+- **Authentic Mac OS 6.0.8 UI**: Classic rounded buttons and text fields
 - **Real-time Statistics**: Hash rate, shares found, shares accepted
 
 ## Performance
