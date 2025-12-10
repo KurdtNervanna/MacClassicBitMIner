@@ -295,14 +295,6 @@ All functions:
 
 Performance gain: **2-3x faster** than pure Pascal
 
-## Files
-
-- `BitcoinStratumMiner.pas` - Main pool miner with Stratum protocol
-- `BitcoinSoloMiner.pas` - Solo miner with getwork protocol
-- `sha256.a` - 68000 assembly optimizations
-- `sha256_test.html` - Browser-based test harness
-- `README.md` - This file
-
 ## Credits
 
 Built with:
