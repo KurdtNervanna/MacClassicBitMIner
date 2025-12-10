@@ -36,7 +36,7 @@ A real Bitcoin pool miner for classic Macintosh computers running System 6.8, fe
 ## Quick Start
 
 ### Option 1: Pure Pascal (Easiest)
-1. Compile `BitcoinStratumMiner.pas` in THINK Pascal
+1. Compile `BitcoinMiner.pas` in THINK Pascal
 2. Run immediately
 3. Performance: 10-15 H/s
 
@@ -80,7 +80,7 @@ You need a Bitcoin address to receive mining rewards.
 ### Step 4: Compile the Miner
 
 **Without Assembly:**
-1. Open `BitcoinStratumMiner.pas` in THINK Pascal
+1. Open `BitcoinMiner.pas` in THINK Pascal
 2. Project → Build
 3. Done!
 
