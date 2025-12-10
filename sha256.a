@@ -1,0 +1,172 @@
+; SHA-256 68000 Assembly Optimizations
+; Assemble with: Rez or MPW Assembler
+; Link with THINK Pascal using {$L sha256.o}
+
+        XDEF    ROTR_ASM        ; Export rotate right
+        XDEF    Ch_ASM          ; Export Ch function
+        XDEF    Maj_ASM         ; Export Maj function
+        XDEF    Sigma0_ASM      ; Export Sigma0
+        XDEF    Sigma1_ASM      ; Export Sigma1
+        XDEF    sigma0_ASM      ; Export sigma0
+        XDEF    sigma1_ASM      ; Export sigma1
+
+; Optimized 32-bit rotate right
+; Input: D0.L = value to rotate, D1.W = bit count
+; Output: D0.L = rotated value
+; Trashes: D2
+ROTR_ASM:
+        MOVE.L  D0,D2           ; Copy value to D2
+        MOVE.W  D1,D3           ; Get shift count
+        ANDI.W  #31,D3          ; Mask to 0-31
+        LSR.L   D3,D0           ; Shift right by n
+        MOVEQ   #32,D4          ; Load 32
+        SUB.W   D3,D4           ; Calculate 32-n
+        LSL.L   D4,D2           ; Shift left by (32-n)
+        OR.L    D2,D0           ; Combine both parts
+        RTS
+
+; Ch(x,y,z) = (x & y) ^ (~x & z)
+; Input: D0=x, D1=y, D2=z
+; Output: D0=result
+; Trashes: D3
+Ch_ASM:
+        MOVE.L  D0,D3           ; Copy x
+        AND.L   D1,D0           ; x & y
+        NOT.L   D3              ; ~x
+        AND.L   D2,D3           ; ~x & z
+        EOR.L   D3,D0           ; (x & y) ^ (~x & z)
+        RTS
+
+; Maj(x,y,z) = (x & y) ^ (x & z) ^ (y & z)
+; Input: D0=x, D1=y, D2=z
+; Output: D0=result
+; Trashes: D3, D4, D5
+Maj_ASM:
+        MOVE.L  D0,D3           ; Copy x
+        MOVE.L  D1,D4           ; Copy y
+        AND.L   D1,D3           ; x & y
+        MOVE.L  D0,D5           ; Copy x again
+        AND.L   D2,D5           ; x & z
+        AND.L   D2,D4           ; y & z
+        EOR.L   D5,D3           ; (x & y) ^ (x & z)
+        EOR.L   D4,D3           ; ^ (y & z)
+        MOVE.L  D3,D0           ; Return result
+        RTS
+
+; Sigma0(x) = ROTR(x,2) ^ ROTR(x,13) ^ ROTR(x,22)
+; Input: D0=x
+; Output: D0=result
+; Trashes: D1-D5
+Sigma0_ASM:
+        MOVEM.L D6-D7,-(SP)     ; Save registers
+        MOVE.L  D0,D6           ; Save original x
+        
+        ; ROTR(x, 2)
+        MOVE.L  D6,D0
+        MOVEQ   #2,D1
+        BSR     ROTR_ASM
+        MOVE.L  D0,D7           ; Save result
+        
+        ; ROTR(x, 13)
+        MOVE.L  D6,D0
+        MOVEQ   #13,D1
+        BSR     ROTR_ASM
+        EOR.L   D0,D7           ; XOR with previous
+        
+        ; ROTR(x, 22)
+        MOVE.L  D6,D0
+        MOVEQ   #22,D1
+        BSR     ROTR_ASM
+        EOR.L   D0,D7           ; XOR with previous
+        
+        MOVE.L  D7,D0           ; Return result
+        MOVEM.L (SP)+,D6-D7     ; Restore registers
+        RTS
+
+; Sigma1(x) = ROTR(x,6) ^ ROTR(x,11) ^ ROTR(x,25)
+; Input: D0=x
+; Output: D0=result
+Sigma1_ASM:
+        MOVEM.L D6-D7,-(SP)
+        MOVE.L  D0,D6
+        
+        ; ROTR(x, 6)
+        MOVE.L  D6,D0
+        MOVEQ   #6,D1
+        BSR     ROTR_ASM
+        MOVE.L  D0,D7
+        
+        ; ROTR(x, 11)
+        MOVE.L  D6,D0
+        MOVEQ   #11,D1
+        BSR     ROTR_ASM
+        EOR.L   D0,D7
+        
+        ; ROTR(x, 25)
+        MOVE.L  D6,D0
+        MOVEQ   #25,D1
+        BSR     ROTR_ASM
+        EOR.L   D0,D7
+        
+        MOVE.L  D7,D0
+        MOVEM.L (SP)+,D6-D7
+        RTS
+
+; sigma0(x) = ROTR(x,7) ^ ROTR(x,18) ^ (x >> 3)
+; Input: D0=x
+; Output: D0=result
+sigma0_ASM:
+        MOVEM.L D6-D7,-(SP)
+        MOVE.L  D0,D6
+        
+        ; ROTR(x, 7)
+        MOVE.L  D6,D0
+        MOVEQ   #7,D1
+        BSR     ROTR_ASM
+        MOVE.L  D0,D7
+        
+        ; ROTR(x, 18)
+        MOVE.L  D6,D0
+        MOVEQ   #18,D1
+        BSR     ROTR_ASM
+        EOR.L   D0,D7
+        
+        ; x >> 3
+        MOVE.L  D6,D0
+        LSR.L   #3,D0
+        EOR.L   D0,D7
+        
+        MOVE.L  D7,D0
+        MOVEM.L (SP)+,D6-D7
+        RTS
+
+; sigma1(x) = ROTR(x,17) ^ ROTR(x,19) ^ (x >> 10)
+; Input: D0=x
+; Output: D0=result
+sigma1_ASM:
+        MOVEM.L D6-D7,-(SP)
+        MOVE.L  D0,D6
+        
+        ; ROTR(x, 17)
+        MOVE.L  D6,D0
+        MOVEQ   #17,D1
+        BSR     ROTR_ASM
+        MOVE.L  D0,D7
+        
+        ; ROTR(x, 19)
+        MOVE.L  D6,D0
+        MOVEQ   #19,D1
+        BSR     ROTR_ASM
+        EOR.L   D0,D7
+        
+        ; x >> 10
+        MOVE.L  D6,D0
+        LSR.L   #8,D0           ; Shift 8 bits
+        LSR.L   #2,D0           ; Shift 2 more (total 10)
+        EOR.L   D0,D7
+        
+        MOVE.L  D7,D0
+        MOVEM.L (SP)+,D6-D7
+        RTS
+
+        END
