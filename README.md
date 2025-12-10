@@ -1,4 +1,4 @@
-# MacClassicBitMIner
+# MacClassicBitMiner
 # Bitcoin Miner for Mac OS 6.8 - Complete Setup Guide
 ![program window screenshot](https://github.com/user-attachments/assets/e464c9b5-9ee5-4444-92e4-ea5eb7b361aa)
 
