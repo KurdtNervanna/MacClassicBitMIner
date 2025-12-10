@@ -1,20 +1,20 @@
-; SHA-256 68000 Assembly Optimizations
-; Assemble with: Rez or MPW Assembler
-; Link with THINK Pascal using {$L sha256.o}
+; SHA-256 68000 Assembly Optimizations for THINK Pascal 4.0
+; Fixed version - all registers properly handled
 
-        XDEF    ROTR_ASM        ; Export rotate right
-        XDEF    Ch_ASM          ; Export Ch function
-        XDEF    Maj_ASM         ; Export Maj function
-        XDEF    Sigma0_ASM      ; Export Sigma0
-        XDEF    Sigma1_ASM      ; Export Sigma1
-        XDEF    sigma0_ASM      ; Export sigma0
-        XDEF    sigma1_ASM      ; Export sigma1
+        XDEF    ROTR_ASM
+        XDEF    Ch_ASM
+        XDEF    Maj_ASM
+        XDEF    Sigma0_ASM
+        XDEF    Sigma1_ASM
+        XDEF    sigma0_ASM
+        XDEF    sigma1_ASM
 
 ; Optimized 32-bit rotate right
-; Input: D0.L = value to rotate, D1.W = bit count
+; Input: D0.L = value, D1.W = shift count
 ; Output: D0.L = rotated value
-; Trashes: D2
+; Uses: D2, D3, D4 (caller saved)
 ROTR_ASM:
+        MOVEM.L D2-D4,-(SP)     ; Save registers we use
         MOVE.L  D0,D2           ; Copy value to D2
         MOVE.W  D1,D3           ; Get shift count
         ANDI.W  #31,D3          ; Mask to 0-31
@@ -23,25 +23,29 @@ ROTR_ASM:
         SUB.W   D3,D4           ; Calculate 32-n
         LSL.L   D4,D2           ; Shift left by (32-n)
         OR.L    D2,D0           ; Combine both parts
+        MOVEM.L (SP)+,D2-D4     ; Restore registers
         RTS
 
 ; Ch(x,y,z) = (x & y) ^ (~x & z)
 ; Input: D0=x, D1=y, D2=z
 ; Output: D0=result
-; Trashes: D3
+; Uses: D3 (caller saved)
 Ch_ASM:
+        MOVEM.L D3,-(SP)        ; Save D3
         MOVE.L  D0,D3           ; Copy x
         AND.L   D1,D0           ; x & y
         NOT.L   D3              ; ~x
         AND.L   D2,D3           ; ~x & z
         EOR.L   D3,D0           ; (x & y) ^ (~x & z)
+        MOVEM.L (SP)+,D3        ; Restore D3
         RTS
 
 ; Maj(x,y,z) = (x & y) ^ (x & z) ^ (y & z)
 ; Input: D0=x, D1=y, D2=z
 ; Output: D0=result
-; Trashes: D3, D4, D5
+; Uses: D3, D4, D5 (caller saved)
 Maj_ASM:
+        MOVEM.L D3-D5,-(SP)     ; Save registers
         MOVE.L  D0,D3           ; Copy x
         MOVE.L  D1,D4           ; Copy y
         AND.L   D1,D3           ; x & y
@@ -51,84 +55,84 @@ Maj_ASM:
         EOR.L   D5,D3           ; (x & y) ^ (x & z)
         EOR.L   D4,D3           ; ^ (y & z)
         MOVE.L  D3,D0           ; Return result
+        MOVEM.L (SP)+,D3-D5     ; Restore registers
         RTS
 
 ; Sigma0(x) = ROTR(x,2) ^ ROTR(x,13) ^ ROTR(x,22)
 ; Input: D0=x
 ; Output: D0=result
-; Trashes: D1-D5
 Sigma0_ASM:
-        MOVEM.L D6-D7,-(SP)     ; Save registers
+        MOVEM.L D1-D7,-(SP)     ; Save all work registers
         MOVE.L  D0,D6           ; Save original x
         
         ; ROTR(x, 2)
         MOVE.L  D6,D0
         MOVEQ   #2,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         MOVE.L  D0,D7           ; Save result
         
         ; ROTR(x, 13)
         MOVE.L  D6,D0
         MOVEQ   #13,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         EOR.L   D0,D7           ; XOR with previous
         
         ; ROTR(x, 22)
         MOVE.L  D6,D0
         MOVEQ   #22,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         EOR.L   D0,D7           ; XOR with previous
         
         MOVE.L  D7,D0           ; Return result
-        MOVEM.L (SP)+,D6-D7     ; Restore registers
+        MOVEM.L (SP)+,D1-D7     ; Restore registers
         RTS
 
 ; Sigma1(x) = ROTR(x,6) ^ ROTR(x,11) ^ ROTR(x,25)
 ; Input: D0=x
 ; Output: D0=result
 Sigma1_ASM:
-        MOVEM.L D6-D7,-(SP)
-        MOVE.L  D0,D6
+        MOVEM.L D1-D7,-(SP)     ; Save all work registers
+        MOVE.L  D0,D6           ; Save original x
         
         ; ROTR(x, 6)
         MOVE.L  D6,D0
         MOVEQ   #6,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         MOVE.L  D0,D7
         
         ; ROTR(x, 11)
         MOVE.L  D6,D0
         MOVEQ   #11,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         EOR.L   D0,D7
         
         ; ROTR(x, 25)
         MOVE.L  D6,D0
         MOVEQ   #25,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         EOR.L   D0,D7
         
         MOVE.L  D7,D0
-        MOVEM.L (SP)+,D6-D7
+        MOVEM.L (SP)+,D1-D7
         RTS
 
 ; sigma0(x) = ROTR(x,7) ^ ROTR(x,18) ^ (x >> 3)
 ; Input: D0=x
 ; Output: D0=result
 sigma0_ASM:
-        MOVEM.L D6-D7,-(SP)
-        MOVE.L  D0,D6
+        MOVEM.L D1-D7,-(SP)     ; Save all work registers
+        MOVE.L  D0,D6           ; Save original x
         
         ; ROTR(x, 7)
         MOVE.L  D6,D0
         MOVEQ   #7,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         MOVE.L  D0,D7
         
         ; ROTR(x, 18)
         MOVE.L  D6,D0
         MOVEQ   #18,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         EOR.L   D0,D7
         
         ; x >> 3
@@ -137,26 +141,26 @@ sigma0_ASM:
         EOR.L   D0,D7
         
         MOVE.L  D7,D0
-        MOVEM.L (SP)+,D6-D7
+        MOVEM.L (SP)+,D1-D7
         RTS
 
 ; sigma1(x) = ROTR(x,17) ^ ROTR(x,19) ^ (x >> 10)
 ; Input: D0=x
 ; Output: D0=result
 sigma1_ASM:
-        MOVEM.L D6-D7,-(SP)
-        MOVE.L  D0,D6
+        MOVEM.L D1-D7,-(SP)     ; Save all work registers
+        MOVE.L  D0,D6           ; Save original x
         
         ; ROTR(x, 17)
         MOVE.L  D6,D0
         MOVEQ   #17,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         MOVE.L  D0,D7
         
         ; ROTR(x, 19)
         MOVE.L  D6,D0
         MOVEQ   #19,D1
-        BSR     ROTR_ASM
+        BSR.S   ROTR_ASM
         EOR.L   D0,D7
         
         ; x >> 10
@@ -166,7 +170,7 @@ sigma1_ASM:
         EOR.L   D0,D7
         
         MOVE.L  D7,D0
-        MOVEM.L (SP)+,D6-D7
+        MOVEM.L (SP)+,D1-D7
         RTS
 
         END
