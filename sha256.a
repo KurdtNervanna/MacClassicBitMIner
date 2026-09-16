@@ -1,176 +1,202 @@
-; SHA-256 68000 Assembly Optimizations for THINK Pascal 4.0
-; Fixed version - all registers properly handled
+; SHA-256 helper functions in 68000 assembly for THINK Pascal 4.0+
+;
+; *** EXPERIMENTAL / UNVERIFIED optimization path ***
+; The pure-Pascal implementation in BitcoinMiner.pas is the validated default
+; (see reference/ for the 46-check proof). These routines are a drop-in speed
+; optimization but have NOT been assembled or run on hardware yet. If you build
+; with them and the Self-Test button reports FAIL, remove them and use the
+; Pascal versions.
+;
+; --- Fixes vs. the earlier version of this file ---
+;  * Uses the correct THINK Pascal calling convention: parameters are on the
+;    STACK (via LINK A6), not in registers. The old register-based version
+;    could never have linked correctly against THINK Pascal.
+;  * Uses the 68000's native ROR (rotate) instruction instead of a shift/OR
+;    sequence -- shorter and faster, and exactly what ROTR needs.
+;  * Names match the Pascal function names so swap-in needs no call-site edits.
+;
+; --- How to enable (see README "Assembly Optimization") ---
+;  1. Add this file to the project and put {$L sha256.a} in BitcoinMiner.pas.
+;  2. Comment out the 7 Pascal functions ROTR, Ch, Maj, BigSigma0, BigSigma1,
+;     SmSigma0, SmSigma1 and declare them 'external' instead.
+;  3. Rebuild and click Self-Test. It must say PASS.
+;
+; THINK Pascal stack frame after 'LINK A6,#0' (function with result):
+;    8(A6)  = last (rightmost) parameter
+;    ...    = earlier parameters, at higher addresses
+;    8+P(A6)= 4-byte function-result slot  (P = total parameter bytes)
+; A LongInt parameter is 4 bytes; an Integer parameter is 2 bytes.
+; Epilogue removes the parameters and leaves the result on the stack (no RTD on
+; the 68000).
 
-        XDEF    ROTR_ASM
-        XDEF    Ch_ASM
-        XDEF    Maj_ASM
-        XDEF    Sigma0_ASM
-        XDEF    Sigma1_ASM
-        XDEF    sigma0_ASM
-        XDEF    sigma1_ASM
+        XDEF    ROTR
+        XDEF    Ch
+        XDEF    Maj
+        XDEF    BigSigma0
+        XDEF    BigSigma1
+        XDEF    SmSigma0
+        XDEF    SmSigma1
 
-; Optimized 32-bit rotate right
-; Input: D0.L = value, D1.W = shift count
-; Output: D0.L = rotated value
-; Uses: D2, D3, D4 (caller saved)
-ROTR_ASM:
-        MOVEM.L D2-D4,-(SP)     ; Save registers we use
-        MOVE.L  D0,D2           ; Copy value to D2
-        MOVE.W  D1,D3           ; Get shift count
-        ANDI.W  #31,D3          ; Mask to 0-31
-        LSR.L   D3,D0           ; Shift right by n
-        MOVEQ   #32,D4          ; Load 32
-        SUB.W   D3,D4           ; Calculate 32-n
-        LSL.L   D4,D2           ; Shift left by (32-n)
-        OR.L    D2,D0           ; Combine both parts
-        MOVEM.L (SP)+,D2-D4     ; Restore registers
-        RTS
+; -------------------------------------------------------------------------
+; function ROTR(x: LongInt; n: Integer): LongInt;   rotate x right by n
+;   8(A6)=n (Integer,2)  10(A6)=x (LongInt,4)  14(A6)=result   params=6
+; -------------------------------------------------------------------------
+ROTR:
+        LINK    A6,#0
+        MOVE.W  8(A6),D1        ; n
+        ANDI.W  #31,D1          ; 0..31
+        MOVE.L  10(A6),D0       ; x
+        ROR.L   D1,D0           ; rotate right by n
+        MOVE.L  D0,14(A6)       ; result
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDQ.L  #6,SP           ; drop 6 bytes of params
+        JMP     (A0)
 
-; Ch(x,y,z) = (x & y) ^ (~x & z)
-; Input: D0=x, D1=y, D2=z
-; Output: D0=result
-; Uses: D3 (caller saved)
-Ch_ASM:
-        MOVEM.L D3,-(SP)        ; Save D3
-        MOVE.L  D0,D3           ; Copy x
+; -------------------------------------------------------------------------
+; function Ch(x, y, z: LongInt): LongInt;   (x & y) ^ (~x & z)
+;   8(A6)=z  12(A6)=y  16(A6)=x  20(A6)=result   params=12
+; -------------------------------------------------------------------------
+Ch:
+        LINK    A6,#0
+        MOVEM.L D2/D3,-(SP)
+        MOVE.L  16(A6),D0       ; x
+        MOVE.L  12(A6),D1       ; y
+        MOVE.L  8(A6),D2        ; z
+        MOVE.L  D0,D3           ; x
         AND.L   D1,D0           ; x & y
         NOT.L   D3              ; ~x
         AND.L   D2,D3           ; ~x & z
         EOR.L   D3,D0           ; (x & y) ^ (~x & z)
-        MOVEM.L (SP)+,D3        ; Restore D3
-        RTS
+        MOVE.L  D0,20(A6)
+        MOVEM.L (SP)+,D2/D3
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDA.W  #12,SP
+        JMP     (A0)
 
-; Maj(x,y,z) = (x & y) ^ (x & z) ^ (y & z)
-; Input: D0=x, D1=y, D2=z
-; Output: D0=result
-; Uses: D3, D4, D5 (caller saved)
-Maj_ASM:
-        MOVEM.L D3-D5,-(SP)     ; Save registers
-        MOVE.L  D0,D3           ; Copy x
-        MOVE.L  D1,D4           ; Copy y
+; -------------------------------------------------------------------------
+; function Maj(x, y, z: LongInt): LongInt;   (x&y) ^ (x&z) ^ (y&z)
+;   8(A6)=z  12(A6)=y  16(A6)=x  20(A6)=result   params=12
+; -------------------------------------------------------------------------
+Maj:
+        LINK    A6,#0
+        MOVEM.L D2-D4,-(SP)
+        MOVE.L  16(A6),D0       ; x
+        MOVE.L  12(A6),D1       ; y
+        MOVE.L  8(A6),D2        ; z
+        MOVE.L  D0,D3           ; x
         AND.L   D1,D3           ; x & y
-        MOVE.L  D0,D5           ; Copy x again
-        AND.L   D2,D5           ; x & z
+        MOVE.L  D0,D4           ; x
+        AND.L   D2,D4           ; x & z
+        EOR.L   D4,D3           ; (x&y) ^ (x&z)
+        MOVE.L  D1,D4           ; y
         AND.L   D2,D4           ; y & z
-        EOR.L   D5,D3           ; (x & y) ^ (x & z)
-        EOR.L   D4,D3           ; ^ (y & z)
-        MOVE.L  D3,D0           ; Return result
-        MOVEM.L (SP)+,D3-D5     ; Restore registers
-        RTS
+        EOR.L   D4,D3           ; ^ (y&z)
+        MOVE.L  D3,20(A6)
+        MOVEM.L (SP)+,D2-D4
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDA.W  #12,SP
+        JMP     (A0)
 
-; Sigma0(x) = ROTR(x,2) ^ ROTR(x,13) ^ ROTR(x,22)
-; Input: D0=x
-; Output: D0=result
-Sigma0_ASM:
-        MOVEM.L D1-D7,-(SP)     ; Save all work registers
-        MOVE.L  D0,D6           ; Save original x
-        
-        ; ROTR(x, 2)
-        MOVE.L  D6,D0
-        MOVEQ   #2,D1
-        BSR.S   ROTR_ASM
-        MOVE.L  D0,D7           ; Save result
-        
-        ; ROTR(x, 13)
-        MOVE.L  D6,D0
-        MOVEQ   #13,D1
-        BSR.S   ROTR_ASM
-        EOR.L   D0,D7           ; XOR with previous
-        
-        ; ROTR(x, 22)
-        MOVE.L  D6,D0
-        MOVEQ   #22,D1
-        BSR.S   ROTR_ASM
-        EOR.L   D0,D7           ; XOR with previous
-        
-        MOVE.L  D7,D0           ; Return result
-        MOVEM.L (SP)+,D1-D7     ; Restore registers
-        RTS
+; -------------------------------------------------------------------------
+; function BigSigma0(x: LongInt): LongInt;  ROTR(x,2) ^ ROTR(x,13) ^ ROTR(x,22)
+;   8(A6)=x  12(A6)=result   params=4
+; -------------------------------------------------------------------------
+BigSigma0:
+        LINK    A6,#0
+        MOVEM.L D2/D5,-(SP)
+        MOVE.L  8(A6),D5        ; x
+        MOVE.L  D5,D0
+        ROR.L   #2,D0           ; ROTR(x,2)
+        MOVE.L  D5,D1
+        MOVEQ   #13,D2
+        ROR.L   D2,D1           ; ROTR(x,13)
+        EOR.L   D1,D0
+        MOVE.L  D5,D1
+        MOVEQ   #22,D2
+        ROR.L   D2,D1           ; ROTR(x,22)
+        EOR.L   D1,D0
+        MOVE.L  D0,12(A6)
+        MOVEM.L (SP)+,D2/D5
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDQ.L  #4,SP
+        JMP     (A0)
 
-; Sigma1(x) = ROTR(x,6) ^ ROTR(x,11) ^ ROTR(x,25)
-; Input: D0=x
-; Output: D0=result
-Sigma1_ASM:
-        MOVEM.L D1-D7,-(SP)     ; Save all work registers
-        MOVE.L  D0,D6           ; Save original x
-        
-        ; ROTR(x, 6)
-        MOVE.L  D6,D0
-        MOVEQ   #6,D1
-        BSR.S   ROTR_ASM
-        MOVE.L  D0,D7
-        
-        ; ROTR(x, 11)
-        MOVE.L  D6,D0
-        MOVEQ   #11,D1
-        BSR.S   ROTR_ASM
-        EOR.L   D0,D7
-        
-        ; ROTR(x, 25)
-        MOVE.L  D6,D0
-        MOVEQ   #25,D1
-        BSR.S   ROTR_ASM
-        EOR.L   D0,D7
-        
-        MOVE.L  D7,D0
-        MOVEM.L (SP)+,D1-D7
-        RTS
+; -------------------------------------------------------------------------
+; function BigSigma1(x: LongInt): LongInt;  ROTR(x,6) ^ ROTR(x,11) ^ ROTR(x,25)
+; -------------------------------------------------------------------------
+BigSigma1:
+        LINK    A6,#0
+        MOVEM.L D2/D5,-(SP)
+        MOVE.L  8(A6),D5
+        MOVE.L  D5,D0
+        MOVEQ   #6,D2
+        ROR.L   D2,D0           ; ROTR(x,6)
+        MOVE.L  D5,D1
+        MOVEQ   #11,D2
+        ROR.L   D2,D1           ; ROTR(x,11)
+        EOR.L   D1,D0
+        MOVE.L  D5,D1
+        MOVEQ   #25,D2
+        ROR.L   D2,D1           ; ROTR(x,25)
+        EOR.L   D1,D0
+        MOVE.L  D0,12(A6)
+        MOVEM.L (SP)+,D2/D5
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDQ.L  #4,SP
+        JMP     (A0)
 
-; sigma0(x) = ROTR(x,7) ^ ROTR(x,18) ^ (x >> 3)
-; Input: D0=x
-; Output: D0=result
-sigma0_ASM:
-        MOVEM.L D1-D7,-(SP)     ; Save all work registers
-        MOVE.L  D0,D6           ; Save original x
-        
-        ; ROTR(x, 7)
-        MOVE.L  D6,D0
-        MOVEQ   #7,D1
-        BSR.S   ROTR_ASM
-        MOVE.L  D0,D7
-        
-        ; ROTR(x, 18)
-        MOVE.L  D6,D0
-        MOVEQ   #18,D1
-        BSR.S   ROTR_ASM
-        EOR.L   D0,D7
-        
-        ; x >> 3
-        MOVE.L  D6,D0
-        LSR.L   #3,D0
-        EOR.L   D0,D7
-        
-        MOVE.L  D7,D0
-        MOVEM.L (SP)+,D1-D7
-        RTS
+; -------------------------------------------------------------------------
+; function SmSigma0(x: LongInt): LongInt;  ROTR(x,7) ^ ROTR(x,18) ^ (x >> 3)
+; -------------------------------------------------------------------------
+SmSigma0:
+        LINK    A6,#0
+        MOVEM.L D2/D5,-(SP)
+        MOVE.L  8(A6),D5
+        MOVE.L  D5,D0
+        MOVEQ   #7,D2
+        ROR.L   D2,D0           ; ROTR(x,7)
+        MOVE.L  D5,D1
+        MOVEQ   #18,D2
+        ROR.L   D2,D1           ; ROTR(x,18)
+        EOR.L   D1,D0
+        MOVE.L  D5,D1
+        LSR.L   #3,D1           ; x >> 3  (logical shift, zero fill)
+        EOR.L   D1,D0
+        MOVE.L  D0,12(A6)
+        MOVEM.L (SP)+,D2/D5
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDQ.L  #4,SP
+        JMP     (A0)
 
-; sigma1(x) = ROTR(x,17) ^ ROTR(x,19) ^ (x >> 10)
-; Input: D0=x
-; Output: D0=result
-sigma1_ASM:
-        MOVEM.L D1-D7,-(SP)     ; Save all work registers
-        MOVE.L  D0,D6           ; Save original x
-        
-        ; ROTR(x, 17)
-        MOVE.L  D6,D0
-        MOVEQ   #17,D1
-        BSR.S   ROTR_ASM
-        MOVE.L  D0,D7
-        
-        ; ROTR(x, 19)
-        MOVE.L  D6,D0
-        MOVEQ   #19,D1
-        BSR.S   ROTR_ASM
-        EOR.L   D0,D7
-        
-        ; x >> 10
-        MOVE.L  D6,D0
-        LSR.L   #8,D0           ; Shift 8 bits
-        LSR.L   #2,D0           ; Shift 2 more (total 10)
-        EOR.L   D0,D7
-        
-        MOVE.L  D7,D0
-        MOVEM.L (SP)+,D1-D7
-        RTS
+; -------------------------------------------------------------------------
+; function SmSigma1(x: LongInt): LongInt;  ROTR(x,17) ^ ROTR(x,19) ^ (x >> 10)
+; -------------------------------------------------------------------------
+SmSigma1:
+        LINK    A6,#0
+        MOVEM.L D2/D5,-(SP)
+        MOVE.L  8(A6),D5
+        MOVE.L  D5,D0
+        MOVEQ   #17,D2
+        ROR.L   D2,D0           ; ROTR(x,17)
+        MOVE.L  D5,D1
+        MOVEQ   #19,D2
+        ROR.L   D2,D1           ; ROTR(x,19)
+        EOR.L   D1,D0
+        MOVE.L  D5,D1
+        MOVEQ   #10,D2
+        LSR.L   D2,D1           ; x >> 10
+        EOR.L   D1,D0
+        MOVE.L  D0,12(A6)
+        MOVEM.L (SP)+,D2/D5
+        UNLK    A6
+        MOVE.L  (SP)+,A0
+        ADDQ.L  #4,SP
+        JMP     (A0)
 
         END
