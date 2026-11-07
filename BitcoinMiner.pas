@@ -1085,8 +1085,14 @@ begin
         ParseHostOnly(temp, poolConfig.host);
         poolConfig.port := ParsePort(temp);
         if poolConfig.port > 0 then begin
-          BlockMove(workerEdit^^.hText^, @poolConfig.username[1], workerEdit^^.teLength);
-          poolConfig.username[0] := Chr(workerEdit^^.teLength);
+          { pools expect  <wallet>.<worker>  as the login name }
+          BlockMove(walletEdit^^.hText^, @poolConfig.username[1], walletEdit^^.teLength);
+          poolConfig.username[0] := Chr(walletEdit^^.teLength);
+          if workerEdit^^.teLength > 0 then begin
+            BlockMove(workerEdit^^.hText^, @temp[1], workerEdit^^.teLength);
+            temp[0] := Chr(workerEdit^^.teLength);
+            poolConfig.username := Concat(poolConfig.username, '.', temp);
+          end;
           BlockMove(passEdit^^.hText^, @poolConfig.password[1], passEdit^^.teLength);
           poolConfig.password[0] := Chr(passEdit^^.teLength);
           subscribeDone := false; authorized := false;

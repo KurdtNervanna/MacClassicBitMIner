@@ -34,6 +34,42 @@ whole SHA-256d + byte-order pipeline compiled correctly, with no pool required.
 
 ---
 
+## 2.0: C version (`c/`) — the recommended build
+
+The Pascal rewrite above could never be compiled or run without the vintage Mac,
+so the project now also has a **C version that builds with
+[Retro68](https://github.com/autc04/Retro68)** (a 68k Mac cross-compiler) and whose
+mining engine is tested on a modern PC:
+
+| Piece | What it is | Status |
+|---|---|---|
+| `c/minercore.[ch]` | Portable engine: SHA-256d with midstate, Stratum parser, coinbase/merkle/header, exact (fractional) difficulty target, extranonce2 rollover, self-test | ✅ tested |
+| `c/host/hostminer.c` | Runs the same engine on a PC against any Stratum server | ✅ |
+| `reference/fake_pool.py` | Local Stratum pool that **independently re-verifies every share** with the Python reference | ✅ 8/8 shares accepted |
+| `c/app/macminer.c`, `dnr.c` | The Mac app: Toolbox UI, MacTCP, DNS via the MacTCP resolver | built with Retro68; ⏳ not yet run on a real Mac |
+
+Verified against the real pool `solo.ckpool.org:3333`: subscribe, authorize
+(`<wallet>.<worker>`), `set_difficulty`, and full `mining.notify` parsing all work.
+That pool fixes difficulty at 10000, so an accepted share there needs ~4×10¹³
+hashes — use a lower-difficulty pool to see "Accepted" quickly.
+
+Fixes found while porting (also present in the Pascal version): the pool login must be
+`<wallet>.<worker>` (the old code sent only the worker name, which ckpool rejects),
+and `extranonce2` now advances instead of being fixed at zero.
+
+Test it:
+
+```
+python reference/fake_pool.py --want 8 &                  # local pool + independent verifier
+gcc -O2 -o hostminer c/host/hostminer.c c/minercore.c
+./hostminer selftest
+./hostminer 127.0.0.1 3333 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa worker1 60
+```
+
+Build the Mac app: `cmake -S c -B build-mac -DCMAKE_TOOLCHAIN_FILE=<Retro68>/toolchain/m68k-apple-macos/cmake/retro68.toolchain.cmake && cmake --build build-mac`
+
+---
+
 ## What was fixed in this revival
 
 The earlier code looked complete but did not actually mine or compile cleanly.
